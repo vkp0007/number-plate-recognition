@@ -1,47 +1,34 @@
-from ultralytics import YOLO
+# plate_detector.py — YOLOv11-based license plate detector
 
+from ultralytics import YOLO
+import cv2
+import numpy as np
+import torch
 
 class PlateDetector:
-    def __init__(self, model_path="license_plate_detector.pt"):
-        self.model = YOLO(model_path)
+    def __init__(self, weights_path="best.pt", conf_thresh=0.25):
+        """
+        Loads YOLOv11 model for plate detection.
+        """
+        self.model = YOLO(weights_path)
+        self.conf_thresh = conf_thresh
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model.to(self.device)
 
     def detect_plates(self, frame):
         """
-        Detect license plates with lower confidence threshold
-        and better handling of edge cases.
+        Detect license plates in a given frame.
+        Returns list of [x1, y1, x2, y2, conf]
         """
-        # Lower confidence to catch more plates
-        results = self.model.predict(frame, conf=0.15, verbose=False)
-
+        results = self.model.predict(frame, conf=self.conf_thresh, imgsz=640, verbose=False)
         detections = []
         for r in results:
+            if not hasattr(r, "boxes"):
+                continue
             for box in r.boxes:
-                x1, y1, x2, y2 = box.xyxy[0]
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
                 conf = float(box.conf[0])
-                cls = int(box.cls[0])
-
-                # Convert to integers
-                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-
-                # Basic validation - skip invalid boxes
-                if x2 <= x1 or y2 <= y1:
+                if (x2 - x1) < 20 or (y2 - y1) < 10:
                     continue
-
-                # Skip very small detections (likely noise)
-                width = x2 - x1
-                height = y2 - y1
-                if width < 20 or height < 10:
-                    continue
-
-                # Check aspect ratio (plates are typically wider than tall)
-                aspect_ratio = width / height if height > 0 else 0
-                if aspect_ratio < 1.5 or aspect_ratio > 6.0:
-                    # Still include but with lower priority
-                    pass
-
-                detections.append([x1, y1, x2, y2, conf, cls])
-
-        # Sort by confidence (highest first)
-        detections.sort(key=lambda x: x[4], reverse=True)
-
+                detections.append([x1, y1, x2, y2, conf])
         return detections
